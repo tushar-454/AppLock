@@ -25,6 +25,20 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Tailwind CSS v4
+
+Tailwind CSS 4.1 is configured through [NativeWind v5](https://www.nativewind.dev/v5/getting-started/installation) for Android, iOS, and web. NativeWind v5 is a release candidate; its engine and compiler dependencies are pinned to the documented versions.
+
+Use `className` on React Native components, as shown in `src/app/index.tsx`:
+
+```tsx
+<View className="flex-1 items-center justify-center">
+  <Text className="text-xl font-bold text-blue-500">Hello Tailwind</Text>
+</View>
+```
+
+Global styles and CSS-first theme customization belong in `src/global.css`, imported once by `src/app/_layout.tsx`. No `tailwind.config.js` is needed. After changing Metro or PostCSS configuration, restart with `npx expo start --clear`.
+
 ## Get a fresh project
 
 When you're ready, run:
