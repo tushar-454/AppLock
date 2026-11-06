@@ -1,60 +1,52 @@
 {
-  "expo": {
-    "name": "AppLock",
-    "slug": "applock",
-    "version": "1.0.0",
-    "orientation": "default",
-    "icon": "./assets/branding/icon.png",
-    "scheme": "applock",
-    "userInterfaceStyle": "automatic",
-    "ios": {
-      "icon": "./assets/expo.icon"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#EADDFF",
-        "foregroundImage": "./assets/branding/adaptive-foreground.png",
-        "monochromeImage": "./assets/branding/adaptive-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false,
-      "package": "com.tushar.applock",
-      "versionCode": 2,
-      "allowBackup": false,
-      "blockedPermissions": [
-        "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.VIBRATE",
-        "android.permission.USE_FINGERPRINT"
-      ]
-    },
-    "web": {
-      "output": "server",
-      "favicon": "./assets/images/favicon.png"
-    },
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#FFFBFE",
-          "image": "./assets/branding/splash.png",
-          "imageWidth": 88,
-          "resizeMode": "contain",
-          "dark": {
-            "image": "./assets/branding/splash-dark.png",
-            "backgroundColor": "#141218"
-          }
-        }
-      ],
-      "./plugins/with-app-lock"
-    ],
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
-    },
-    "platforms": [
-      "android"
-    ]
-  }
+    "expo": {
+        "name": "AppLock",
+        "slug": "applock",
+        "version": "1.0.0",
+        "orientation": "default",
+        "icon": "./assets/branding/icon.png",
+        "scheme": "applock",
+        "userInterfaceStyle": "automatic",
+        "ios": {
+            "icon": "./assets/expo.icon"
+        },
+        "android": {
+            "adaptiveIcon": {
+                "backgroundColor": "#EADDFF",
+                "foregroundImage": "./assets/branding/adaptive-foreground.png",
+                "monochromeImage": "./assets/branding/adaptive-monochrome.png"
+            },
+            "predictiveBackGestureEnabled": false,
+            "package": "com.tushar.applock",
+            "versionCode": 2,
+            "allowBackup": false,
+            "blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW", "android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.VIBRATE", "android.permission.USE_FINGERPRINT"]
+        },
+        "web": {
+            "output": "server",
+            "favicon": "./assets/images/favicon.png"
+        },
+        "plugins": [
+            "expo-router",
+            [
+                "expo-splash-screen",
+                {
+                    "backgroundColor": "#FFFBFE",
+                    "image": "./assets/branding/splash.png",
+                    "imageWidth": 88,
+                    "resizeMode": "contain",
+                    "dark": {
+                        "image": "./assets/branding/splash-dark.png",
+                        "backgroundColor": "#141218"
+                    }
+                }
+            ],
+            "./plugins/with-app-lock"
+        ],
+        "experiments": {
+            "typedRoutes": true,
+            "reactCompiler": true
+        },
+        "platforms": ["android"]
+    }
 }
