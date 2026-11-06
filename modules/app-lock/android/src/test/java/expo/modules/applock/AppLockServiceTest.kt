@@ -28,6 +28,7 @@ class AppLockServiceTest {
   @Before fun setup() {
     val context = RuntimeEnvironment.getApplication()
     context.createDeviceProtectedStorageContext().getSharedPreferences("app_lock_protection", Context.MODE_PRIVATE).edit().clear().commit()
+    GraceSettings(context).set(true, 30_000)
     ProtectionStore(context).set(a, true); ProtectionStore(context).set(b, true)
     controller = Robolectric.buildService(AppLockService::class.java).create()
     service = controller.get()
@@ -59,10 +60,10 @@ class AppLockServiceTest {
     event("com.android.systemui"); event(service.packageName, AuthenticationActivity::class.java.name)
     assertEquals(id, service.engine.request?.id); assertFalse(service.engine.blocked())
   }
-  @Test fun mainUiEndsSession() {
+  @Test fun mainUiStartsGrace() {
     val id = begin(); service.authenticated(id)
     event(service.packageName, "${service.packageName}.MainActivity"); event(a)
-    assertNotEquals(id, service.engine.request?.id); assertTrue(service.engine.blocked())
+    assertFalse(service.engine.blocked())
   }
   @Test fun opaqueHostCanCoverWhenOverlayWasUnavailable() {
     val request = service.engine.enter(a)!!
@@ -83,4 +84,35 @@ class AppLockServiceTest {
   }
   @Test fun emergencyWindowRemovesCoverWithoutLauncherEntry() { begin(); event("com.android.emergency"); assertFalse(service.engine.blocked()); assertNull(service.engine.request) }
   @Test fun interruptedServiceRelocksOnNextEntry() { val id = begin(); service.authenticated(id); service.onInterrupt(); event(a); assertNotEquals(id, service.engine.request?.id); assertTrue(service.engine.blocked()) }
+
+  @Test fun permissionAndBiometricWindowsDoNotStartCountdown() {
+    val id = begin(); service.authenticated(id)
+    event("com.android.permissioncontroller"); event("android")
+    event(a); assertEquals(id, service.engine.request?.id); assertFalse(service.engine.blocked())
+  }
+  @Test fun configChangeClearsGrant() {
+    val id = begin(); service.authenticated(id)
+    GraceSettings(service).set(false, 30_000); shadowOf(Looper.getMainLooper()).idle()
+    event(a); assertTrue(service.engine.blocked()); assertNotEquals(id, service.engine.request?.id)
+  }
+  @Test fun graceChangeBeforePostedObserverRunsRejectsStaleCallback() {
+    val id = begin(); GraceSettings(service).set(false, 30_000)
+    assertFalse(service.authenticated(id))
+  }
+  @Test fun packageChangeBeforePostedObserverRunsRejectsStaleCallback() {
+    val id = begin(); ProtectionStore(service).set(b, false)
+    assertFalse(service.authenticated(id))
+  }
+  @Test fun bootReceiverInvalidatesSuccessfulGrants() {
+    val id = begin(); service.authenticated(id)
+    BootReceiver().onReceive(service, Intent(Intent.ACTION_BOOT_COMPLETED))
+    event(a); assertTrue(service.engine.blocked()); assertNotEquals(id, service.engine.request?.id)
+  }
+  @Test fun delayedObserverDoesNotEraseAuthenticationUnderNewConfiguration() {
+    begin(); GraceSettings(service).set(false, 60_000)
+    event(a); val next = service.engine.request!!.id
+    assertTrue(service.startPrompt(next)); assertTrue(service.authenticated(next))
+    shadowOf(Looper.getMainLooper()).idle()
+    event(a); assertFalse(service.engine.blocked())
+  }
 }

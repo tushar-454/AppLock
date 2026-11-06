@@ -8,6 +8,7 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action !in setOf(Intent.ACTION_LOCKED_BOOT_COMPLETED, Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_USER_UNLOCKED, Intent.ACTION_MY_PACKAGE_REPLACED)) return
+    ManagementSecurity.invalidate()
     ProtectionStore(context).read() // Available before the first credential unlock.
     RuntimeEvents.service?.resetSessions()
     RuntimeEvents.changed()

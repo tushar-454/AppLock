@@ -16,7 +16,14 @@ function withAppLock(config) {
     if (!mod.modResults.contents.includes('// AppLock personal signing')) {
       mod.modResults.contents += `
 // AppLock personal signing. Values are provided only by the local build script.
+if (System.getenv('APPLOCK_REQUIRE_SIGNING') == 'true' &&
+    (!System.getenv('APPLOCK_KEYSTORE') || !System.getenv('APPLOCK_STORE_PASSWORD'))) {
+  throw new GradleException('Release signing is required, but APPLOCK_KEYSTORE or APPLOCK_STORE_PASSWORD is missing.')
+}
 if (System.getenv('APPLOCK_KEYSTORE')) {
+  if (!System.getenv('APPLOCK_STORE_PASSWORD')) {
+    throw new GradleException('APPLOCK_STORE_PASSWORD is required when APPLOCK_KEYSTORE is set.')
+  }
   android {
     signingConfigs {
       personal {

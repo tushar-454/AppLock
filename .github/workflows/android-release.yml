@@ -1,0 +1,210 @@
+name: Android Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app.json'
+      - 'app.config.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'babel.config.js'
+      - 'metro.config.js'
+      - 'tsconfig.json'
+      - 'nativewind-env.d.ts'
+      - 'src/**'
+      - 'modules/**'
+      - 'plugins/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'assets/**'
+  workflow_dispatch:
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Validate and build signed APK
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version_name: ${{ steps.version.outputs.version_name }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      tag: ${{ steps.version.outputs.tag }}
+      certificate: ${{ steps.verify.outputs.certificate }}
+      checksum: ${{ steps.checksum.outputs.sha256 }}
+    steps:
+      - name: Check out full release history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.1
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;37.0.0' 'ndk;27.1.12297006'
+
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+
+      - name: Validate release version and select next version
+        id: version
+        run: node scripts/android-release.mjs
+
+      - name: Validate app configuration and native project
+        env:
+          APPLOCK_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APPLOCK_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          npm run check:native-config
+          npx expo config --type public --json > "$RUNNER_TEMP/expo-config.json"
+          node -e 'const c=require(process.argv[1]); if (c.version !== process.env.APPLOCK_VERSION_NAME || c.android.versionCode !== Number(process.env.APPLOCK_VERSION_CODE) || c.android.package !== "com.tushar.applock") process.exit(1)' "$RUNNER_TEMP/expo-config.json"
+
+      - name: Run lint, typecheck, and native unit tests
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run test:release-version
+
+      - name: Check signing secrets and decode keystore
+        env:
+          APPLOCK_KEYSTORE_BASE64: ${{ secrets.APPLOCK_KEYSTORE_BASE64 }}
+          APPLOCK_STORE_PASSWORD: ${{ secrets.APPLOCK_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ -n "$APPLOCK_KEYSTORE_BASE64" ]] || { echo 'APPLOCK_KEYSTORE_BASE64 is required.' >&2; exit 1; }
+          [[ -n "$APPLOCK_STORE_PASSWORD" ]] || { echo 'APPLOCK_STORE_PASSWORD is required.' >&2; exit 1; }
+          key_path="$RUNNER_TEMP/applock-release.keystore"
+          printf '%s' "$APPLOCK_KEYSTORE_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          keytool -list -keystore "$key_path" -storepass:env APPLOCK_STORE_PASSWORD -alias applock >/dev/null
+          printf 'APPLOCK_KEYSTORE=%s\nAPPLOCK_STORE_PASSWORD=%s\nAPPLOCK_REQUIRE_SIGNING=true\n' "$key_path" "$APPLOCK_STORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Generate native Android project
+        env:
+          APPLOCK_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APPLOCK_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Run engine unit tests
+        run: ./android/gradlew -p tests/engine test --no-daemon --max-workers=2 --console=plain
+
+      - name: Run native tests and assemble release APK
+        env:
+          APPLOCK_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APPLOCK_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          cd android
+          ./gradlew :app-lock:testDebugUnitTest :app-lock:lintDebug :app:assembleRelease --no-daemon --max-workers=2 --console=plain
+
+      - name: Verify APK signature, certificate, package, and version
+        id: verify
+        env:
+          APPLOCK_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          APPLOCK_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          apk='android/app/build/outputs/apk/release/app-release.apk'
+          verification="$(bash scripts/verify-release-apk.sh "$apk" "$APPLOCK_VERSION_NAME" "$APPLOCK_VERSION_CODE")"
+          printf '%s\n' "$verification"
+          cert="$(printf '%s\n' "$verification" | sed -n 's/^Signer SHA-256: //p')"
+          [[ "$cert" == '7adcb0de660b8b286f416e81b1fc4945600c5085b0c90181c3152fb0e4a09cda' ]]
+          echo "certificate=$cert" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare immutable release artifacts
+        id: checksum
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          cp android/app/build/outputs/apk/release/app-release.apk "release-artifacts/applock-${RELEASE_TAG}.apk"
+          (cd release-artifacts && sha256sum "applock-${RELEASE_TAG}.apk" > "applock-${RELEASE_TAG}.apk.sha256")
+          hash="$(sha256sum "release-artifacts/applock-${RELEASE_TAG}.apk" | cut -d ' ' -f1)"
+          echo "sha256=$hash" >> "$GITHUB_OUTPUT"
+
+      - name: Clean up signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/applock-release.keystore"
+
+      - name: Upload verified APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ steps.version.outputs.tag }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notes history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download verified APK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-${{ needs.build.outputs.tag }}
+          path: release-artifacts
+
+      - name: Refuse duplicate releases and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version_name }}
+          RELEASE_CODE: ${{ needs.build.outputs.version_code }}
+          RELEASE_CERTIFICATE: ${{ needs.build.outputs.certificate }}
+          RELEASE_CHECKSUM: ${{ needs.build.outputs.checksum }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null || gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag or GitHub Release ${RELEASE_TAG} already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          previous="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1 || true)"
+          if [[ -n "$previous" ]]; then
+            notes="$(git log --no-merges --format='- %s (%h)' "${previous}..${GITHUB_SHA}")"
+          else
+            notes="$(git log --no-merges --format='- %s (%h)' "${GITHUB_SHA}" -n 30)"
+          fi
+          [[ -n "$notes" ]] || notes='- Maintenance release.'
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          ## AppLock ${RELEASE_VERSION}
+
+          - Version code: ${RELEASE_CODE}
+          - Android package: com.tushar.applock
+          - APK: [applock-${RELEASE_TAG}.apk](https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/applock-${RELEASE_TAG}.apk)
+          - Signing certificate SHA-256: \`${RELEASE_CERTIFICATE}\`
+          - APK SHA-256: \`${RELEASE_CHECKSUM}\`
+
+          ### Changes
+          ${notes}
+
+          ### Install or update
+          Download the APK and open it on your Android device to install or update AppLock. Android preserves app data for a normal update when the package and signing certificate match and the version code increases. Do not uninstall the existing app.
+          EOF
+          gh release create "$RELEASE_TAG" release-artifacts/* --title "AppLock ${RELEASE_VERSION}" --notes-file "$RUNNER_TEMP/release-notes.md" --target "$GITHUB_SHA"

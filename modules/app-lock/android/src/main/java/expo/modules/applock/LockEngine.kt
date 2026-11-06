@@ -11,20 +11,39 @@ class LockEngine(private val now: () -> Long, private val newId: () -> String = 
   var foreground: String? = null; private set
   var expiresAt = 0L; private set
   private var protected = emptySet<String>()
-  companion object { const val SESSION_MS = 5 * 60 * 1000L }
+  private data class Grant(var firstExit: Long? = null)
+  private val grants = mutableMapOf<String, Grant>()
+  private var grace = GracePolicy()
+
+  fun configureGrace(policy: GracePolicy) {
+    if (grace != policy) { reset(); grace = policy }
+  }
 
   fun configure(packages: Set<String>) {
+    if (protected != packages) reset()
     protected = packages.toSet()
-    if (foreground !in protected) clearRequest()
   }
   fun enter(packageName: String): Request? {
     if (foreground != packageName) {
+      foreground?.let { pkg ->
+        grants[pkg]?.let { grant ->
+          if (!grace.enabled) grants.remove(pkg)
+          else if (grant.firstExit == null) grant.firstExit = now()
+        }
+      }
       clearRequest()
       foreground = packageName
     }
     if (packageName !in protected) return null
-    if (state == State.AUTHENTICATED && now() < expiresAt) return null
-    if (state == State.AUTHENTICATED) clearRequest()
+    // Expiry is checked only on re-entry. Never interrupt continuous foreground use.
+    if (state == State.AUTHENTICATED) return null
+    val grant = grants[packageName]
+    if (grant != null && (grant.firstExit == null || (grace.enabled && now() - grant.firstExit!! in 0 until grace.durationMs))) {
+      state = State.AUTHENTICATED
+      expiresAt = grant.firstExit?.plus(grace.durationMs) ?: 0L
+      return null
+    }
+    grants.remove(packageName)
     if (request != null) return null // Duplicates and cancellation never auto-retry.
     request = Request(newId(), packageName)
     state = State.LOCK_REQUIRED
@@ -35,7 +54,8 @@ class LockEngine(private val now: () -> Long, private val newId: () -> String = 
   fun success(id: String): Boolean {
     if (!matches(id) || state != State.AUTHENTICATING) return false
     state = State.AUTHENTICATED
-    expiresAt = now() + SESSION_MS
+    grants[foreground!!] = Grant()
+    expiresAt = 0L
     return true
   }
   fun failure(id: String): Boolean = matches(id) && state == State.AUTHENTICATING
@@ -47,7 +67,7 @@ class LockEngine(private val now: () -> Long, private val newId: () -> String = 
     clearRequest()
     return enter(pkg)
   }
-  fun reset() { clearRequest(); foreground = null }
+  fun reset() { grants.clear(); clearRequest(); foreground = null }
   fun matches(id: String): Boolean = request?.id == id && request?.packageName == foreground
   fun blocked(): Boolean = request != null && state != State.AUTHENTICATED
   private fun clearRequest() { request = null; expiresAt = 0; state = State.UNLOCKED }

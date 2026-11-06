@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="208 208 608 608">
+  <title>AppLock shield</title>
+  <desc>Original rounded shield with a transparent lock cutout. No text or gradients.</desc>
+  <path id="shield" fill="#D0BCFF" fill-rule="evenodd" d="
+    M 512 230
+    C 526 230 539 235 554 243
+    L 708 311
+    Q 736 323 736 354
+    L 736 484
+    C 736 624 654 724 534 787
+    Q 512 801 490 787
+    C 370 724 288 624 288 484
+    L 288 354
+    Q 288 323 316 311
+    L 470 243
+    C 485 235 498 230 512 230 Z
+    M 452 464
+    L 452 420
+    A 60 60 0 0 1 572 420
+    L 572 464
+    L 584 464
+    Q 608 464 608 488
+    L 608 588
+    Q 608 612 584 612
+    L 440 612
+    Q 416 612 416 588
+    L 416 488
+    Q 416 464 440 464 Z
+    M 476 464
+    L 548 464
+    L 548 420
+    A 36 36 0 0 0 476 420 Z
+  "/>
+</svg>

@@ -28,11 +28,11 @@ class LockEngineTest {
   @Test fun cancellationDoesNotUnlock() { val r = begin(); assertTrue(engine.cancel(r.id)); assertTrue(engine.blocked()); assertFalse(engine.success(r.id)); assertNull(engine.enter(a)) }
   @Test fun failureKeepsPromptPending() { val r = begin(); assertTrue(engine.failure(r.id)); assertTrue(engine.blocked()); assertEquals(LockEngine.State.AUTHENTICATING, engine.state) }
   @Test fun authenticatedAppKeepsSession() { val r = begin(); engine.success(r.id); repeat(10) { assertNull(engine.enter(a)) }; assertFalse(engine.blocked()) }
-  @Test fun returningFromLauncherRelocks() { engine.success(begin().id); engine.enter("com.android.launcher3"); assertNotNull(engine.enter(a)) }
-  @Test fun switchingToUnprotectedAppRelocks() { engine.success(begin().id); engine.enter("com.example.free"); assertNotNull(engine.enter(a)) }
+  @Test fun returningFromLauncherWithinGrace() { engine.success(begin().id); engine.enter("com.android.launcher3"); assertNull(engine.enter(a)); assertFalse(engine.blocked()) }
+  @Test fun switchingToUnprotectedAppRetainsGrant() { engine.success(begin().id); engine.enter("com.example.free"); assertNull(engine.enter(a)) }
   @Test fun screenLockInvalidatesPendingCallback() { val r = begin(); engine.reset(); assertFalse(engine.success(r.id)); assertNotNull(engine.enter(a)) }
   @Test fun serviceRestartNeverRestoresGrant() { engine.success(begin().id); engine = LockEngine({ time }); engine.configure(setOf(a)); assertNotNull(engine.enter(a)) }
-  @Test fun expirationRequiresAuthentication() { engine.success(begin().id); time += LockEngine.SESSION_MS; assertNotNull(engine.enter(a)); assertTrue(engine.blocked()) }
+  @Test fun continuousForegroundNeverExpires() { engine.success(begin().id); time += 600_000; assertNull(engine.enter(a)); assertFalse(engine.blocked()) }
   @Test fun rapidSwitchBackUsesNewRequestId() { val r = begin(); begin(b); val last = begin(); assertNotEquals(r.id, last.id); assertFalse(engine.success(r.id)); assertTrue(engine.success(last.id)) }
   @Test fun staleCancelDoesNotCancelNewPrompt() { val r = begin(); val next = begin(b); assertFalse(engine.cancel(r.id)); assertTrue(engine.success(next.id)) }
   @Test fun removalEndsProtection() { begin(); engine.configure(setOf(b)); assertFalse(engine.blocked()); assertNull(engine.enter(a)) }
@@ -48,5 +48,62 @@ class LockEngineTest {
   @Test fun transientSystemInteractionsLeaveSessionUntouched() {
     // The adapter filters these metadata events; no enter call is made for them.
     engine.success(begin().id); time += 500; assertNull(engine.enter(a)); assertFalse(engine.blocked())
+  }
+
+  @Test fun defaultGraceIsThirtySeconds() {
+    engine.success(begin().id); engine.enter("com.example.free"); time += 29_999
+    assertNull(engine.enter(a)); engine.enter("com.example.free"); time++
+    assertNotNull(engine.enter(a))
+  }
+  @Test fun disabledGraceRequiresEachNewEntry() {
+    engine.configureGrace(GracePolicy(false)); engine.success(begin().id)
+    assertNull(engine.enter(a)); engine.enter("com.example.free"); assertNotNull(engine.enter(a))
+  }
+  @Test fun firstExitStartsCountdownNotAuthenticationTime() {
+    engine.success(begin().id); time += 120_000; engine.enter("com.example.free")
+    time += 29_999; assertNull(engine.enter(a))
+  }
+  @Test fun repeatedReturnsDoNotExtendOriginalDeadline() {
+    engine.success(begin().id); time += 10_000; engine.enter("com.example.free")
+    time += 10_000; assertNull(engine.enter(a)); time += 5_000; engine.enter("com.example.free")
+    time += 20_000; assertNotNull(engine.enter(a))
+  }
+  @Test fun grantsAreIndependent() {
+    engine.success(begin(a).id); time += 5_000; engine.success(begin(b).id)
+    time += 10_000; engine.enter("com.example.free"); time += 21_000
+    assertNotNull(engine.enter(a)); assertNull(engine.enter(b)); assertFalse(engine.blocked())
+  }
+  @Test fun authenticatingOnePackageDoesNotGrantAnother() {
+    engine.success(begin(a).id); assertNotNull(engine.enter(b)); assertTrue(engine.blocked())
+  }
+  @Test fun newAuthenticationResetsFirstExit() {
+    engine.success(begin().id); engine.enter("com.example.free"); time += 30_000
+    engine.success(begin().id); time += 300_000; engine.enter("com.example.free")
+    time += 20_000; assertNull(engine.enter(a))
+  }
+  @Test fun graceSettingChangesInvalidateAllGrants() {
+    engine.success(begin().id); engine.configureGrace(GracePolicy(true, 60_000)); assertNotNull(engine.enter(a))
+  }
+  @Test fun disablingGraceInvalidatesAllGrants() {
+    engine.success(begin().id); engine.configureGrace(GracePolicy(false)); assertNotNull(engine.enter(a))
+  }
+  @Test fun configurationMutationInvalidatesOtherPackageGrants() {
+    engine.success(begin().id); engine.configure(setOf(a)); assertNotNull(engine.enter(a))
+  }
+  @Test fun rapidReentryNeverDuplicatesAuthentication() {
+    engine.success(begin().id); repeat(100) { engine.enter("com.example.free"); assertNull(engine.enter(a)) }
+    time += 30_000; engine.enter("com.example.free"); assertNotNull(engine.enter(a))
+    repeat(100) { assertNull(engine.enter(a)) }; assertTrue(engine.blocked())
+  }
+  @Test fun monotonicRollbackDoesNotGrantAccess() {
+    engine.success(begin().id); engine.enter("com.example.free"); time--
+    assertNotNull(engine.enter(a))
+  }
+  @Test fun exactDeadlineRequiresAuthentication() {
+    engine.success(begin().id); engine.enter("com.example.free"); time += 30_000; assertNotNull(engine.enter(a))
+  }
+  @Test fun expiredButStillForegroundIsNotInterrupted() {
+    engine.success(begin().id); engine.enter("com.example.free"); time += 20_000; assertNull(engine.enter(a))
+    time += 50_000; assertNull(engine.enter(a)); engine.enter("com.example.free"); assertNotNull(engine.enter(a))
   }
 }

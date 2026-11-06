@@ -44,6 +44,8 @@ example
 
 # Local Android build toolchain, artifacts and signing material
 .tooling/
+.tooling/applock-personal.keystore
+.tooling/signing-password
 downloads/
 artifacts/
 .gradle/

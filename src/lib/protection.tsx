@@ -1,4 +1,4 @@
-import { AppLock, type InstalledApp, type Palette, type ProtectionStatus } from '../../modules/app-lock';
+import { AppLock, type GraceSettings, type InstalledApp, type Palette, type ProtectionStatus } from '../../modules/app-lock';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 import { AppState, useColorScheme } from 'react-native';
 
@@ -14,6 +14,9 @@ function useProtectionState() {
   const [status, setStatus] = useState(unavailable);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(!!AppLock);
+  const [grace, setGrace] = useState<GraceSettings>({ enabled: true, durationMs: 30000 });
+  const [gracePending, setGracePending] = useState(false);
+  const graceWriting = useRef(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const inFlight = useRef(false);
   const rerun = useRef(false);
@@ -26,11 +29,11 @@ function useProtectionState() {
     do {
       rerun.current = false;
       try {
-        const [nextApps, nextProtected, nextStatus, nextPalette] = await Promise.all([
-          AppLock.getInstalledApps(), AppLock.getProtectedApps(), AppLock.getProtectionStatus(), AppLock.getTheme(),
+        const [nextApps, nextProtected, nextStatus, nextPalette, nextGrace] = await Promise.all([
+          AppLock.getInstalledApps(), AppLock.getProtectedApps(), AppLock.getProtectionStatus(), AppLock.getTheme(), AppLock.getGraceSettings(),
         ]);
         if (mounted.current) {
-          setApps(nextApps); setProtectedApps(nextProtected); setStatus(nextStatus); setPalette(nextPalette); setError(undefined);
+          setGrace(nextGrace); setApps(nextApps); setProtectedApps(nextProtected); setStatus(nextStatus); setPalette(nextPalette); setError(undefined);
         }
       } catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : String(e)); }
     } while (rerun.current && mounted.current);
@@ -72,7 +75,14 @@ function useProtectionState() {
       await (kind === 'accessibility' ? AppLock.openAccessibilitySettings() : kind === 'security' ? AppLock.openSecuritySettings() : AppLock.openAppSettings());
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }, []);
-  return { apps, protectedApps, status, palette, error, loading, pending, refresh, toggle, openSettings, nativeAvailable: !!AppLock };
+  const updateGrace = useCallback(async (enabled: boolean, durationMs: number) => {
+    if (!AppLock || graceWriting.current) return;
+    graceWriting.current = true; setGracePending(true);
+    try { await AppLock.setGraceSettings(enabled, durationMs); await refresh(); }
+    catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : String(e)); }
+    finally { graceWriting.current = false; if (mounted.current) setGracePending(false); }
+  }, [refresh]);
+  return { grace, gracePending, updateGrace, apps, protectedApps, status, palette, error, loading, pending, refresh, toggle, openSettings, nativeAvailable: !!AppLock };
 }
 const ProtectionContext = createContext<ReturnType<typeof useProtectionState> | null>(null);
 export function ProtectionProvider({ children }: PropsWithChildren) {

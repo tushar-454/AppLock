@@ -50,6 +50,7 @@
     "test:native": "bash scripts/test-native.sh",
     "test:engine": "bash scripts/test-engine.sh",
     "verify:apk": "bash scripts/verify-apk.sh",
+    "test:release-version": "node --test scripts/android-release.test.mjs",
     "check:native-config": "node scripts/check-native-config.mjs"
   },
   "private": true,

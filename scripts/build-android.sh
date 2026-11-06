@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export JAVA_HOME="${JAVA_HOME:-$PWD/.tooling/jdk-17.0.21+9}"
-export ANDROID_HOME="${ANDROID_HOME:-$PWD/.tooling/android-sdk}"
-export ANDROID_USER_HOME="${ANDROID_USER_HOME:-$PWD/.tooling/android-user}"
-export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$PWD/.tooling/gradle}"
-export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+source scripts/android-env.sh
 export CI=1
 export NODE_ENV=production
-mkdir -p .tooling artifacts "$ANDROID_USER_HOME"
+mkdir -p .tooling dist "$ANDROID_USER_HOME"
+umask 077
+if [[ -f .tooling/applock-personal.keystore && ! -s .tooling/signing-password ]]; then
+  echo 'Existing signing key has no password file. Restore .tooling/signing-password privately.' >&2
+  exit 1
+fi
 if [[ ! -f .tooling/signing-password ]]; then
   umask 077
   node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))" > .tooling/signing-password
@@ -25,5 +26,8 @@ npx expo prebuild --platform android --no-install
 # arm64 is the Pixel 6a ABI. Override for an emulator: APPLOCK_ABIS=x86_64.
 ./android/gradlew -p android :app-lock:testDebugUnitTest :app-lock:lintDebug :app:assembleRelease \
   -PreactNativeArchitectures="${APPLOCK_ABIS:-arm64-v8a}" --max-workers=2 --console=plain
-cp android/app/build/outputs/apk/release/app-release.apk artifacts/AppLock-1.0.0.apk
-bash scripts/verify-apk.sh
+bash scripts/verify-apk.sh android/app/build/outputs/apk/release/app-release.apk
+cp android/app/build/outputs/apk/release/app-release.apk dist/applock.apk
+chmod 644 dist/applock.apk
+sha256sum dist/applock.apk > dist/applock.apk.sha256
+printf 'Verified standalone APK: %s/dist/applock.apk\n' "$PWD"

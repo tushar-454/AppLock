@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.biometric.BiometricManager
 import expo.modules.kotlin.modules.Module
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.Locale
 
@@ -23,6 +24,7 @@ class AppLockModule : Module() {
   private var observer: ContentObserver? = null
   private var observedContext: Context? = null
   private var revision = -1L
+  companion object { const val SETTINGS_REQUEST = 48021 }
   private val notify: () -> Unit = { sendEvent("onStatusChanged", emptyMap<String, Any>()) }
   private fun catalog(): AppCatalog {
     if (catalog == null) catalog = AppCatalog(context)
@@ -60,9 +62,40 @@ class AppLockModule : Module() {
     OnStopObserving { stopObserving() }
     OnDestroy { stopObserving() }
     OnActivityEntersForeground { notify() }
-    AsyncFunction("getInstalledApps") { catalog().apps() }
-    AsyncFunction("getProtectedApps") { ProtectionStore(context).read().toList() }
-    AsyncFunction("setAppProtected") { packageName: String, enabled: Boolean ->
+    OnActivityResult { _, result ->
+      if (result.requestCode == SETTINGS_REQUEST) synchronized(ManagementSecurity) { ManagementSecurity.session.settingsCompleted() }
+    }
+    AsyncFunction("getManagementState") { ManagementSecurity.state(context) }
+    AsyncFunction("createPin") { pin: String, confirmation: String -> ManagementSecurity.create(context, pin, confirmation) }
+    AsyncFunction("verifyPin") { pin: String -> ManagementSecurity.verify(context, pin) }
+    AsyncFunction("changePin") { current: String, next: String, confirmation: String ->
+      // Check before resolving context too; no unauthenticated bridge entry can touch credentials.
+      synchronized(ManagementSecurity) { ManagementSecurity.session.requireAccess() }
+      ManagementSecurity.change(context, current, next, confirmation)
+    }
+    AsyncFunction("lockManagement") { ManagementSecurity.invalidate() }
+    AsyncFunction("acknowledgeManagementScreen") { generation: Long ->
+      appContext.currentActivity?.let { activity ->
+        activity.runOnUiThread {
+          synchronized(ManagementSecurity) {
+            if (ManagementSecurity.session.resumed && ManagementSecurity.session.generation == generation) {
+              val root = activity.window.decorView as android.view.ViewGroup
+              root.findViewWithTag<android.view.View>("applock-privacy-cover")?.let { root.removeView(it) }
+            }
+          }
+        }
+      }
+    }
+    AsyncFunction("getGraceSettings") { ManagementSecurity.authorized {
+      GraceSettings(context).read().let { mapOf("enabled" to it.enabled, "durationMs" to it.durationMs) }
+    } }
+    AsyncFunction("setGraceSettings") { enabled: Boolean, durationMs: Long -> ManagementSecurity.authorized {
+      GraceSettings(context).set(enabled, durationMs)
+      RuntimeEvents.changed()
+    } }
+    AsyncFunction("getInstalledApps") { ManagementSecurity.authorized { catalog().apps() } }
+    AsyncFunction("getProtectedApps") { ManagementSecurity.authorized { ProtectionStore(context).read().toList() } }
+    AsyncFunction("setAppProtected") { packageName: String, enabled: Boolean -> ManagementSecurity.authorized {
       require(PackageNames.valid(packageName)) { "Invalid package name" }
       if (enabled) {
         require(catalog().canProtect(packageName)) { "This app is reserved for system recovery or is not launchable" }
@@ -70,14 +103,17 @@ class AppLockModule : Module() {
       }
       ProtectionStore(context).set(packageName, enabled).toList().also { RuntimeEvents.changed() }
     }
+    }
     AsyncFunction("getProtectionStatus") { status() }
-    AsyncFunction("openAccessibilitySettings") {
-      context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-    AsyncFunction("openSecuritySettings") { context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    AsyncFunction("openAppSettings") {
-      context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
+    AsyncFunction("openAccessibilitySettings") { ManagementSecurity.authorized {
+      launchSettings(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    } }.runOnQueue(Queues.MAIN)
+    AsyncFunction("openSecuritySettings") { ManagementSecurity.authorized {
+      launchSettings(Intent(Settings.ACTION_SECURITY_SETTINGS))
+    } }.runOnQueue(Queues.MAIN)
+    AsyncFunction("openAppSettings") { ManagementSecurity.authorized {
+      launchSettings(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+    } }.runOnQueue(Queues.MAIN)
     AsyncFunction("getTheme") {
       val dark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
       fun color(name: String, fallback: String): String {
@@ -91,6 +127,17 @@ class AppLockModule : Module() {
         "primary" to color(if (dark) "system_accent1_200" else "system_accent1_600", if (dark) "#D0BCFF" else "#6750A4"),
         "outline" to color(if (dark) "system_neutral2_700" else "system_neutral2_200", if (dark) "#49454F" else "#CAC4D0"))
     }
+  }
+  private fun launchSettings(intent: Intent) {
+    ManagementSecurity.session.settings()
+    try {
+      val activity = checkNotNull(appContext.currentActivity) { "Open AppLock to manage Android permissions" }
+      // A matching Android activity result is required to preserve a settings excursion.
+      // Launch in this task: simply resurfacing AppLock from another task cannot finish it.
+      @Suppress("DEPRECATION")
+      activity.startActivityForResult(intent, SETTINGS_REQUEST)
+    }
+    catch (error: RuntimeException) { ManagementSecurity.session.returned(); throw error }
   }
   private fun stopObserving() {
     RuntimeEvents.remove(notify)

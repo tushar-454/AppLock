@@ -6,11 +6,11 @@ kotlin {
   sourceSets {
     main {
       kotlin.srcDir("../../modules/app-lock/android/src/main/java")
-      kotlin.include("**/LockEngine.kt", "**/PlatformPolicy.kt")
+      kotlin.include("**/LockEngine.kt", "**/PlatformPolicy.kt", "**/GracePolicy.kt", "**/PinCredential.kt", "**/ManagementSession.kt")
     }
     test {
       kotlin.srcDir("../../modules/app-lock/android/src/test/java")
-      kotlin.include("**/LockEngineTest.kt", "**/PlatformPolicyTest.kt")
+      kotlin.include("**/LockEngineTest.kt", "**/PlatformPolicyTest.kt", "**/PinCredentialTest.kt", "**/ManagementSessionTest.kt")
     }
   }
 }

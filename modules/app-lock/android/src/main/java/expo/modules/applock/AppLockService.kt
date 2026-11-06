@@ -23,15 +23,15 @@ class AppLockService : AccessibilityService() {
   private val handler = Handler(Looper.getMainLooper())
   private lateinit var store: ProtectionStore
   private lateinit var catalog: AppCatalog
+  private lateinit var grace: GraceSettings
   private var overlay: View? = null
   private var overlayId: String? = null
   private val worker = Executors.newSingleThreadExecutor()
   private var connected = false
-  private var transientWindow = false
-  private val expiry = Runnable { if (!transientWindow) engine.foreground?.let { detect(it) } }
   private val configListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
     handler.post {
       engine.configure(store.read())
+      engine.configureGrace(grace.read())
       if (!engine.blocked()) removeOverlay()
       RuntimeEvents.changed()
     }
@@ -39,7 +39,7 @@ class AppLockService : AccessibilityService() {
   private val screenReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
       when (intent.action) {
-        Intent.ACTION_SCREEN_OFF -> resetSessions()
+        Intent.ACTION_SCREEN_OFF -> { ManagementSecurity.invalidate(); resetSessions() }
         Intent.ACTION_USER_UNLOCKED -> { resetSessions(); packagesChanged() }
       }
     }
@@ -50,8 +50,11 @@ class AppLockService : AccessibilityService() {
     connected = true
     store = ProtectionStore(this)
     catalog = AppCatalog(this)
+    grace = GraceSettings(this)
     engine.reset()
     engine.configure(store.read())
+    engine.configureGrace(grace.read())
+    grace.listen(configListener)
     store.listen(configListener)
     ContextCompat.registerReceiver(this, screenReceiver, IntentFilter().apply {
       addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_USER_UNLOCKED)
@@ -69,25 +72,23 @@ class AppLockService : AccessibilityService() {
     if (pkg in PlatformPolicy.recoveryPackages) {
       // Emergency/recovery UI must remain reachable even if it has no launcher activity.
       engine.reset()
-      handler.removeCallbacks(expiry)
       removeOverlay()
       RuntimeEvents.changed()
       return
     }
     if (catalog.ignoreEvent(pkg, event.className?.toString().orEmpty())) {
-      if (pkg != packageName) transientWindow = true
       return
     }
-    transientWindow = false
     if (pkg == packageName) { detect(pkg); return }
-    if (pkg in store.read() || catalog.isHome(pkg) || catalog.isLaunchable(pkg)) detect(pkg)
+    if (PackageNames.valid(pkg)) detect(pkg)
   }
 
   private fun detect(pkg: String) {
+    if (pkg != packageName) ManagementSecurity.externalApp()
     val previous = engine.request?.id
+    syncConfiguration()
     val request = engine.enter(pkg)
     if (previous != engine.request?.id) {
-      handler.removeCallbacks(expiry)
       removeOverlay()
       RuntimeEvents.changed() // Dismiss an obsolete prompt before starting a new one.
     }
@@ -124,13 +125,16 @@ class AppLockService : AccessibilityService() {
     if (engine.state == LockEngine.State.LOCK_REQUIRED) engine.visible(id)
     removeOverlay()
   }
-  fun startPrompt(id: String) = engine.authenticate(id)
+  private fun syncConfiguration() {
+    engine.configure(store.read())
+    engine.configureGrace(grace.read())
+  }
+  fun startPrompt(id: String): Boolean { syncConfiguration(); return engine.authenticate(id) }
   fun authenticated(id: String): Boolean {
+    syncConfiguration()
     if (getSystemService(KeyguardManager::class.java).isKeyguardLocked) { resetSessions(); return false }
     if (!engine.success(id)) return false
     removeOverlay()
-    handler.removeCallbacks(expiry)
-    handler.postDelayed(expiry, LockEngine.SESSION_MS)
     RuntimeEvents.changed()
     return true
   }
@@ -177,9 +181,7 @@ class AppLockService : AccessibilityService() {
     overlay = null; overlayId = null
   }
   fun resetSessions() {
-    handler.removeCallbacks(expiry)
     engine.reset()
-    transientWindow = false
     removeOverlay()
     RuntimeEvents.changed()
   }
@@ -194,6 +196,7 @@ class AppLockService : AccessibilityService() {
     if (!connected) return
     connected = false
     store.unlisten(configListener)
+    grace.unlisten(configListener)
     unregisterReceiver(screenReceiver)
     resetSessions()
     if (RuntimeEvents.service === this) RuntimeEvents.service = null
