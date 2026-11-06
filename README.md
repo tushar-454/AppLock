@@ -1,70 +1,60 @@
-# Welcome to your Expo app 👋
+# AppLock
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A personal Android app-protection utility for Pixel 6a, built with Expo SDK 58, React Native 0.88, Kotlin and the project's existing NativeWind 5 / Tailwind 4 integration.
 
-## Get started
+The React Native interface lists real launchable apps, searches Unicode names and persists protection switches through a local Expo module. A native AccessibilityService detects app window package names and covers selected apps. A native FragmentActivity hosts AndroidX BiometricPrompt for the device's enrolled strong biometrics or existing screen-lock PIN, pattern or password. Enforcement does not depend on JavaScript remaining alive.
 
-1. Install dependencies
+Android 11+ is required. This app needs a standalone native build; Expo Go cannot run its engine.
 
-   ```bash
-   npm install
-   ```
+## Install and enable
 
-2. Start the app
+1. Install the generated `artifacts/AppLock-1.0.0.apk`, or use `adb install -r artifacts/AppLock-1.0.0.apk`.
+2. Open App Lock. Ensure an Android PIN, pattern or password is set.
+3. Read the Accessibility disclosure and open Android settings. Enable **App Lock protection**. Android may require **App info → menu → Allow restricted settings** for a sideloaded APK.
+4. Return to App Lock and verify **Protection active**. Enable a switch for an ordinary app, leave to Home, then open that app.
+5. Android verifies your fingerprint or screen lock. Cancellation returns Home and never creates a grant.
 
-   ```bash
-   npx expo start
-   ```
+Launchers, Settings, dialers, keyboards, recovery apps and AppLock itself cannot be selected. Protection settings can be changed and the service disabled/uninstalled normally. This is not tamper-resistant security.
 
-In the output, you'll find options to open the app in a
+## Build a standalone APK locally
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Keep the existing npm lockfile and tooling:
 
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Tailwind CSS v4
-
-Tailwind CSS 4.1 is configured through [NativeWind v5](https://www.nativewind.dev/v5/getting-started/installation) for Android, iOS, and web. NativeWind v5 is a release candidate; its engine and compiler dependencies are pinned to the documented versions.
-
-Use `className` on React Native components, as shown in `src/app/index.tsx`:
-
-```tsx
-<View className="flex-1 items-center justify-center">
-  <Text className="text-xl font-bold text-blue-500">Hello Tailwind</Text>
-</View>
+```sh
+npm ci
+npm run typecheck
+npm run lint
+npx expo-doctor
+npm run build:android
 ```
 
-Global styles and CSS-first theme customization belong in `src/global.css`, imported once by `src/app/_layout.tsx`. No `tailwind.config.js` is needed. After changing Metro or PostCSS configuration, restart with `npx expo start --clear`.
+The build script expects Java 17 and an Android SDK. Set `JAVA_HOME` and `ANDROID_HOME` to your installed toolchain. When unset, it uses the local `.tooling/jdk-17.0.21+9` and `.tooling/android-sdk` provisioned during this task. Install platform tools, `platforms;android-37.0`, build tools 37.0.0, NDK 27.1.12297006 and CMake 3.22.1. Accept the SDK licenses. The installed Expo SDK follows compile API 37 / target API 36; this project sets minimum API 30 for combined system authentication compatibility.
 
-## Get a fresh project
+The script generates ignored `android/` through Expo prebuild, runs native unit tests and assembles a release APK with a bundled Hermes JS runtime. No Metro connection or Expo account is required. It builds arm64-v8a for Pixel 6a; `APPLOCK_ABIS=x86_64 npm run build:android` builds for an x86 emulator instead.
 
-When you're ready, run:
+A personal testing RSA signing key and random password are generated inside ignored `.tooling/`. Preserve those files privately to install updates without uninstalling. They are not production signing credentials. Do not commit or distribute the private key/password. The script verifies the APK signature and package metadata. Output is `artifacts/AppLock-1.0.0.apk`; the APK and local build caches are ignored.
 
-```bash
-npm run reset-project
+To run Android-independent state-machine tests with Java 17 (no Android SDK needed after prebuild), use `npm run test:engine`. To run native Android tests after prebuild with your configured toolchain:
+
+```sh
+npm run test:native
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+For UI development, use `npx expo run:android` with an authorized Android device or emulator. `npm start` runs Metro. Native code changes require rebuilding. No native source should be hand-edited in generated `android/`.
 
-### Other setup steps
+## Permissions and privacy
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+- User-enabled Accessibility: package/class metadata for foreground app detection and the accessibility overlay. Window-content retrieval and gestures are disabled.
+- `USE_BIOMETRIC`: Android's official prompt; no biometric data is stored.
+- `RECEIVE_BOOT_COMPLETED`: initialize local state when Android delivers boot events.
+- Targeted launcher/home/keyboard/dialer package-visibility queries; no `QUERY_ALL_PACKAGES`.
 
-## Learn more
+No general overlay permission, Usage Access, battery exemption, foreground service, account, analytics, ads, cloud service or custom PIN is used. Release builds remove Internet/network-state permissions and disable app backup. Package identifiers are stored locally in device-protected native preferences; authenticated grants exist only in memory.
 
-To learn more about developing your project with Expo, look at the following resources:
+## Re-locking and limitations
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Re-entry from Home or another launchable app, device screen lock, service restart, reboot and a five-minute session deadline require new authentication. Known system dialogs, biometric UI, permission controllers and keyboards do not end sessions. Expiry during a transient system window is deferred until the next ordinary app event.
 
-## Join the community
+Third-party locking is an interaction barrier, not an Android security boundary. Accessibility events arrive after window changes, so brief content exposure is possible. Notifications, recent-app previews, picture-in-picture, split-screen, secondary displays, other users/profiles and service downtime are outside the protection guarantee. Android controls accessibility-service binding and background activity starts. Direct Boot support reads device-protected configuration but does not guarantee coverage at every boot stage. Device credentials may be required before biometrics work after reboot.
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+See [native architecture](docs/ARCHITECTURE.md), [physical-device acceptance checklist](docs/DEVICE-VALIDATION.md), and [validation record](docs/VALIDATION.md). Hardware results must be recorded from an actual device; compilation and mocked tests are not evidence of fingerprint or reboot behavior.

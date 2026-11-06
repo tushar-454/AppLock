@@ -1,0 +1,11 @@
+<resources>
+  <string name="app_lock_accessibility_description">App Lock uses window package names to detect when you open a protected app and cover it until Android verifies your fingerprint or screen lock. It does not read screen content, messages, passwords, or typed input. Everything stays on this device. You can disable this service here at any time.</string>
+  <string name="app_lock_accessibility_summary">Detect and cover protected apps. No screen content is read.</string>
+  <style name="AppLockAuthenticationTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <item name="android:windowIsTranslucent">false</item>
+    <item name="android:windowBackground">#141318</item>
+    <item name="android:windowActionModeOverlay">true</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:colorAccent">#D0BCFF</item>
+  </style>
+</resources>

@@ -1,0 +1,32 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'expo.modules.applock'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.applock'
+  lint { abortOnError = true }
+  defaultConfig { minSdkVersion 30 }
+  testOptions {
+    unitTests.includeAndroidResources = true
+    unitTests.all {
+      maxHeapSize = '1536m'
+      systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+      jvmArgs '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        '--add-opens=java.base/java.io=ALL-UNNAMED',
+        '--add-opens=java.base/java.net=ALL-UNNAMED',
+        '--add-opens=java.base/java.security=ALL-UNNAMED',
+        '--add-opens=java.base/java.text=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED'
+    }
+  }
+}
+
+dependencies {
+  implementation 'androidx.biometric:biometric:1.1.0'
+  implementation 'androidx.fragment:fragment-ktx:1.8.9'
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.robolectric:robolectric:4.16.1'
+}

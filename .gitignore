@@ -41,3 +41,12 @@ example
 # generated native folders
 /ios
 /android
+
+# Local Android build toolchain, artifacts and signing material
+.tooling/
+downloads/
+artifacts/
+.gradle/
+*.keystore
+/tests/engine/build/
+/modules/app-lock/android/build/

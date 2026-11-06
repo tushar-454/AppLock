@@ -41,11 +41,16 @@
   },
   "scripts": {
     "start": "expo start",
-    "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "build:android": "bash scripts/build-android.sh",
+    "test:native": "bash scripts/test-native.sh",
+    "test:engine": "bash scripts/test-engine.sh",
+    "verify:apk": "bash scripts/verify-apk.sh",
+    "check:native-config": "node scripts/check-native-config.mjs"
   },
   "private": true,
   "overrides": {
